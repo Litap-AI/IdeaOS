@@ -9,4 +9,4 @@ dist/
 .vscode/
 .venv/
 __pycache__/
-*.pyc
+*.pycgit status

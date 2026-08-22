@@ -4,6 +4,9 @@ from collections import Counter
 from app.services.academic_structure import (
     analyze_academic_structure,
 )
+from app.services.idea_genome import (
+    build_idea_genome,
+)
 
 STOPWORDS = {
     "about", "after", "again", "against", "also", "among",
@@ -185,7 +188,7 @@ def build_graph(concepts, claims):
 
         nodes.append({
             "id": concept["id"],
-            "label": concept["label"],
+            "label": concept["name"],
             "type": "concept",
             "size": min(
                 42,
@@ -207,7 +210,7 @@ def build_graph(concepts, claims):
 
         for concept in concepts:
 
-            if concept["label"] in claim_text:
+            if concept["name"] in claim_text:
 
                 edges.append({
                     "source": claim["id"],
@@ -229,9 +232,13 @@ def analyze_document_structure(text: str):
 
     citations = extract_citations(text)
 
-    concepts = extract_concepts(text)
+    idea_genome = build_idea_genome(
+        text,
+        limit=30
+    )   
 
     claims = extract_claims(paragraphs)
+    concepts = idea_genome["concepts"]
 
     graph = build_graph(
         concepts,
@@ -260,6 +267,7 @@ def analyze_document_structure(text: str):
         ],
         "citations": citations[:100],
         "concepts": concepts,
+        "idea_genome": idea_genome,
         "claims": claims,
         "graph": graph,
     }
