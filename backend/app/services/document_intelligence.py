@@ -101,25 +101,215 @@ def extract_citations(text: str):
 
     return list(dict.fromkeys(citations))
 
+def is_claim_candidate(sentence: str) -> bool:
+    """
+    Reject obvious non-claim artifacts such as tables,
+    metadata blocks, and reference fragments.
+    """
+
+    text = sentence.lower().strip()
+
+    metadata_signals = [
+        "funding:",
+        "correspondence:",
+        "author contributions:",
+        "conflict of interest",
+        "data availability",
+    ]
+
+    if any(signal in text for signal in metadata_signals):
+        return False
+
+    if "doi.org/" in text:
+        return False
+
+    words = sentence.split()
+
+    numeric_tokens = sum(
+        any(char.isdigit() for char in word)
+        for word in words
+    )
+
+    if len(words) >= 30 and numeric_tokens / len(words) > 0.25:
+        return False
+
+    table_signals = [
+        "metric ai",
+        "ai (train)",
+        "ai (test)",
+        "expert 1",
+        "expert 2",
+        "expert 3",
+        "p-value",
+    ]
+
+    return sum(
+        signal in text
+        for signal in table_signals
+    ) < 2
+
+def classify_claim(sentence: str) -> tuple[str, float]:
+    """
+    Classify a candidate sentence into a broad academic claim type.
+
+    Returns:
+        (claim_type, confidence)
+    """
+
+    text = sentence.lower().strip()
+
+    metadata_signals = [
+        "funding:",
+        "correspondence:",
+        "author contributions:",
+        "conflict of interest",
+        "data availability",
+        "supplementary materials",
+        "acknowledgments",
+        "received no external funding",
+    ]
+
+    if any(signal in text for signal in metadata_signals):
+        return "metadata", 0.98
+
+    future_signals = [
+        "future work",
+        "future research",
+        "will therefore",
+        "will prioritise",
+        "will prioritize",
+        "remains an open question",
+    ]
+
+    if any(signal in text for signal in future_signals):
+        return "future_work", 0.94
+
+    limitation_signals = [
+    "should not be generalised",
+    "should not be generalized",
+    "cannot be generalised",
+    "cannot be generalized",
+    "remains an open question",
+    "limited to",
+    "limitation",
+    "under unrestricted",
+    "low-skill",
+    "skilled or adversarial",
+]
+    if any(
+        signal in text
+        for signal in limitation_signals
+):
+        return "limitation", 0.92
+
+    method_signals = [
+        "we propose",
+        "we developed",
+        "we designed",
+        "we collected",
+        "samples were collected",
+        "participants",
+        "dataset",
+        "method",
+        "architecture",
+    ]
+
+    if any(signal in text for signal in method_signals):
+        return "methodological", 0.82
+
+    background_signals = [
+    "previously",
+    "prior studies",
+    "prior research",
+    "previous studies",
+    "published literature",
+    "literature has",
+    "have achieved",
+    "has achieved",
+    "have demonstrated",
+    "has demonstrated",
+]
+    if any(
+        signal in text
+        for signal in background_signals
+    ):
+        return "background", 0.88
+
+    finding_signals = [
+        "achieved",
+        "improved",
+        "outperformed",
+        "significantly",
+        "accuracy",
+        "f1-score",
+        "auc-roc",
+        "results show",
+        "results indicate",
+        "results suggest",
+        "our findings",
+    ]
+
+    if any(signal in text for signal in finding_signals):
+        return "finding", 0.90
+
+    interpretation_signals = [
+        "therefore",
+        "thus",
+        "suggests",
+        "indicates",
+        "demonstrates",
+        "argues",
+        "because",
+        "confirm",
+        "confirms",
+    ]
+
+    if any(signal in text for signal in interpretation_signals):
+        return "interpretation", 0.84
+
+    return "general", 0.60
+
 
 def extract_claims(paragraphs):
+    """
+    Extract likely research claims from academic paragraphs.
+
+    Uses deterministic linguistic and research-result signals.
+    This is a baseline claim detector, not an LLM classifier.
+    """
 
     claim_pattern = re.compile(
         r"\b("
         r"therefore|"
         r"thus|"
         r"argues?|"
+        r"claims?|"
         r"suggests?|"
         r"demonstrates?|"
         r"shows?|"
         r"indicates?|"
         r"reveals?|"
+        r"finds?|"
+        r"found that|"
         r"we propose|"
         r"we argue|"
+        r"we found|"
         r"this study|"
-        r"results show"
+        r"this research|"
+        r"the findings|"
+        r"the results|"
+        r"results show|"
+        r"results indicate|"
+        r"results suggest|"
+        r"achieved|"
+        r"improved|"
+        r"outperformed|"
+        r"significant|"
+        r"significantly|"
+        r"correlated|"
+        r"associated"
         r")\b",
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
     claims = []
@@ -128,22 +318,32 @@ def extract_claims(paragraphs):
 
         sentences = re.split(
             r"(?<=[.!?])\s+",
-            paragraph
+            paragraph.strip(),
         )
 
         for sentence in sentences:
 
+            sentence = sentence.strip()
+
             if len(sentence.split()) < 10:
                 continue
 
-            if claim_pattern.search(sentence):
+            if not is_claim_candidate(sentence):
+                continue
+            if not claim_pattern.search(sentence):
+                continue
 
-                claims.append({
+            claim_type, confidence = classify_claim(sentence)
+            claims.append(
+                {
                     "id": f"claim_{len(claims) + 1}",
                     "paragraph": paragraph_index + 1,
                     "text": sentence,
-                    "citations": extract_citations(sentence)
-                })
+                    "type": claim_type,
+                    "confidence": confidence,
+                    "citations": extract_citations(sentence),
+                }
+            )
 
     return claims[:50]
 
@@ -177,6 +377,138 @@ def extract_concepts(text: str, limit=20):
 
     return concepts
 
+def link_claims_to_concepts(
+    claims,
+    concepts,
+    max_links: int = 5,
+):
+    """
+    Link claims to relevant Idea Genome concepts.
+
+    Uses:
+    1. Exact multi-word concept matching
+    2. Common academic/AI acronym matching
+    3. Idea Genome concept scores for ranking
+
+    Limits each claim to a maximum of 5 concepts
+    to prevent noisy relationships.
+    """
+    acronym_expansions = {
+        "cnn": "convolutional neural networks",
+        "cnns": "convolutional neural networks",
+        "rnn": "recurrent neural networks",
+        "rnns": "recurrent neural networks",
+        "ai": "artificial intelligence",
+        "ml": "machine learning",
+        "nlp": "natural language processing",
+    }
+    for claim in claims:
+
+        claim_text = claim["text"].lower()
+
+        matches = []
+
+        # -------------------------------------------------
+        # 1. Exact multi-word concept matching
+        # -------------------------------------------------
+
+        for concept in concepts:
+
+            concept_name = (
+                concept["name"]
+                .lower()
+                .strip()
+            )
+
+            if not concept_name:
+                continue
+
+            # Ignore generic single-word concepts.
+            if len(concept_name.split()) == 1:
+                continue
+
+            if concept_name in claim_text:
+
+                matches.append(
+                    {
+                        "id": concept["id"],
+                        "score": concept.get(
+                            "score",
+                            0,
+                        ),
+                    }
+                )
+
+        # -------------------------------------------------
+        # 2. Acronym / technical concept matching
+        # -------------------------------------------------
+
+        for acronym, expansion in acronym_expansions.items():
+
+            if not re.search(
+                rf"\b{re.escape(acronym)}\b",
+                claim_text,
+            ):
+                continue
+
+            for concept in concepts:
+
+                concept_name = (
+                    concept["name"]
+                    .lower()
+                    .strip()
+                )
+
+                if concept_name == expansion:
+
+                    matches.append(
+                        {
+                            "id": concept["id"],
+                            "score": concept.get(
+                                "score",
+                                0,
+                            ) + 10,
+                        }
+                    )
+
+        # -------------------------------------------------
+        # 3. Remove duplicate concept matches
+        # -------------------------------------------------
+
+        unique_matches = {}
+
+        for match in matches:
+
+            concept_id = match["id"]
+
+            if (
+                concept_id not in unique_matches
+                or match["score"]
+                > unique_matches[concept_id]["score"]
+            ):
+                unique_matches[concept_id] = match
+
+        # -------------------------------------------------
+        # 4. Rank concepts by Idea Genome score
+        # -------------------------------------------------
+
+        ranked_matches = sorted(
+            unique_matches.values(),
+            key=lambda item: item["score"],
+            reverse=True,
+        )
+
+        # -------------------------------------------------
+        # 5. Keep only the strongest relationships
+        # -------------------------------------------------
+
+        claim["concepts"] = [
+            match["id"]
+            for match in ranked_matches[:max_links]
+        ]
+
+    return claims
+
 
 def build_graph(concepts, claims):
 
@@ -206,11 +538,10 @@ def build_graph(concepts, claims):
             "size": 10
         })
 
-        claim_text = claim["text"].lower()
-
-        for concept in concepts:
-
-            if concept["name"] in claim_text:
+        for concept_id in claim.get(
+            "concepts",
+            [],
+):
 
                 edges.append({
                     "source": claim["id"],
@@ -239,7 +570,10 @@ def analyze_document_structure(text: str):
 
     claims = extract_claims(paragraphs)
     concepts = idea_genome["concepts"]
-
+    claims = link_claims_to_concepts(
+    claims,
+    concepts,
+    )
     graph = build_graph(
         concepts,
         claims
