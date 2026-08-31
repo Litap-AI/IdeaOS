@@ -101,6 +101,46 @@ def extract_citations(text: str):
 
     return list(dict.fromkeys(citations))
 
+def normalize_citations(citations):
+    """
+    Convert raw citation strings into structured references.
+
+    Only bracketed numeric citations such as [5], [5,6],
+    or [3,4,10] are treated as numbered references.
+    Other numeric text, such as publication years in
+    '(NIPS 1993)', is preserved but produces no references.
+    """
+
+    normalized = []
+
+    for citation in citations:
+
+        citation = citation.strip()
+
+        if re.fullmatch(
+            r"\[\s*\d+(?:\s*,\s*\d+)*\s*\]",
+            citation,
+        ):
+            references = [
+                int(number)
+                for number in re.findall(
+                    r"\d+",
+                    citation,
+                )
+            ]
+        else:
+            references = []
+
+        normalized.append(
+            {
+                "raw": citation,
+                "references": references,
+            }
+        )
+
+    return normalized
+
+
 def is_claim_candidate(sentence: str) -> bool:
     """
     Reject obvious non-claim artifacts such as tables,
@@ -509,11 +549,49 @@ def link_claims_to_concepts(
 
     return claims
 
+def build_claim_citation_relationships(
+    claims,
+):
+    """
+    Build relationships between claims and
+    the numbered references cited by those claims.
+    """
+
+    relationships = []
+
+    for claim in claims:
+
+        for citation in claim.get(
+            "citations",
+            [],
+        ):
+
+            numbers = re.findall(
+                r"\d+",
+                citation,
+            )
+
+            for number in numbers:
+
+                reference_id = int(number)
+
+                relationships.append(
+                    {
+                        "source": claim["id"],
+                        "target": f"reference_{reference_id}",
+                        "type": "supported_by",
+                    }
+                )
+
+    return relationships
+
 
 def build_graph(concepts, claims):
 
     nodes = []
     edges = []
+
+    edge_keys = set()
 
     # Concept nodes
     for concept in concepts:
@@ -538,10 +616,24 @@ def build_graph(concepts, claims):
             "size": 10
         })
 
-        for concept_id in claim.get(
-            "concepts",
-            [],
-):
+        claim_text = claim["text"].lower()
+
+        for concept in concepts:
+
+            concept_name = concept["name"].lower()
+
+            if concept_name in claim_text:
+
+                edge_key = (
+                    claim["id"],
+                    concept["id"],
+                    "mentions",
+                )
+
+                if edge_key in edge_keys:
+                    continue
+
+                edge_keys.add(edge_key)
 
                 edges.append({
                     "source": claim["id"],
@@ -555,13 +647,16 @@ def build_graph(concepts, claims):
     }
 
 
+
+
 def analyze_document_structure(text: str):
 
     paragraphs = split_paragraphs(text)
 
     academic_structure = analyze_academic_structure(text)
 
-    citations = extract_citations(text)
+    raw_citations = extract_citations(text)
+    citations = normalize_citations(raw_citations)
 
     idea_genome = build_idea_genome(
         text,
@@ -574,10 +669,19 @@ def analyze_document_structure(text: str):
     claims,
     concepts,
     )
+
+    claim_citation_relationships = (
+        build_claim_citation_relationships(
+               claims,
+    )
+)
     graph = build_graph(
         concepts,
         claims
     )
+    graph["edges"].extend(
+    claim_citation_relationships
+)
 
     return {
 
@@ -603,5 +707,8 @@ def analyze_document_structure(text: str):
         "concepts": concepts,
         "idea_genome": idea_genome,
         "claims": claims,
+        "claim_citation_relationships": (
+        claim_citation_relationships
+        ),
         "graph": graph,
     }
