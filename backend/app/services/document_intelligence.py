@@ -586,48 +586,172 @@ def build_claim_citation_relationships(
     return relationships
 
 
-def build_graph(concepts, claims):
-
+def build_graph(concepts, claims, citations):
     nodes = []
     edges = []
 
+    node_ids = set()
     edge_keys = set()
 
+    # --------------------------------
+    # Helper: add node safely
+    # --------------------------------
+
+    def add_node(node):
+        node_id = node["id"]
+
+        if node_id in node_ids:
+            return
+
+        node_ids.add(node_id)
+        nodes.append(node)
+
+    # --------------------------------
     # Concept nodes
+    # --------------------------------
+
     for concept in concepts:
 
-        nodes.append({
+        add_node({
             "id": concept["id"],
             "label": concept["name"],
             "type": "concept",
             "size": min(
                 42,
-                14 + concept["frequency"] * 2
+                14 + concept.get("frequency", 0) * 2
             )
         })
 
+    # --------------------------------
     # Claim nodes
+    # --------------------------------
+
     for claim in claims:
 
-        nodes.append({
-            "id": claim["id"],
-            "label": claim["text"][:70],
+        claim_id = claim["id"]
+        claim_text = claim.get("text", "")
+
+        add_node({
+            "id": claim_id,
+            "label": claim_text[:70],
             "type": "claim",
             "size": 10
         })
 
-        claim_text = claim["text"].lower()
+        # --------------------------------
+        # Claim -> Concept relationships
+        # --------------------------------
+
+        claim_text_lower = claim_text.lower()
 
         for concept in concepts:
 
-            concept_name = concept["name"].lower()
+            concept_name = concept.get("name", "").lower()
 
-            if concept_name in claim_text:
+            if not concept_name:
+                continue
+
+            if concept_name not in claim_text_lower:
+                continue
+
+            edge_key = (
+                claim_id,
+                concept["id"],
+                "mentions",
+            )
+
+            if edge_key in edge_keys:
+                continue
+
+            edge_keys.add(edge_key)
+
+            edges.append({
+                "source": claim_id,
+                "target": concept["id"],
+                "type": "mentions"
+            })
+
+    # --------------------------------
+    # Reference nodes
+    # --------------------------------
+
+    for citation in citations:
+
+        # Ignore malformed citation objects
+        if not isinstance(citation, dict):
+            continue
+
+        references = citation.get("references", [])
+
+        if not isinstance(references, list):
+            continue
+
+        for reference_number in references:
+
+            reference_id = (
+                f"reference_{reference_number}"
+            )
+
+            add_node({
+                "id": reference_id,
+                "label": f"Reference {reference_number}",
+                "type": "reference",
+                "size": 8
+            })
+
+    # --------------------------------
+    # Claim -> Reference relationships
+    # --------------------------------
+
+    for claim in claims:
+
+        claim_id = claim["id"]
+
+        claim_citations = claim.get(
+            "citations",
+            []
+        )
+
+        if not isinstance(claim_citations, list):
+            continue
+
+        for citation in claim_citations:
+
+            if not isinstance(citation, str):
+                continue
+
+            numbers = re.findall(
+                r"\d+",
+                citation
+            )
+
+            for number in numbers:
+
+                reference_id = (
+                    f"reference_{number}"
+                )
+
+                # --------------------------------
+                # Make sure reference node exists
+                # --------------------------------
+
+                if reference_id not in node_ids:
+
+                    add_node({
+                        "id": reference_id,
+                        "label": f"Reference {number}",
+                        "type": "reference",
+                        "size": 8
+                    })
+
+                # --------------------------------
+                # Create relationship
+                # --------------------------------
 
                 edge_key = (
-                    claim["id"],
-                    concept["id"],
-                    "mentions",
+                    claim_id,
+                    reference_id,
+                    "supported_by",
                 )
 
                 if edge_key in edge_keys:
@@ -636,16 +760,19 @@ def build_graph(concepts, claims):
                 edge_keys.add(edge_key)
 
                 edges.append({
-                    "source": claim["id"],
-                    "target": concept["id"],
-                    "type": "mentions"
+                    "source": claim_id,
+                    "target": reference_id,
+                    "type": "supported_by"
                 })
+
+    # --------------------------------
+    # Return graph
+    # --------------------------------
 
     return {
         "nodes": nodes,
-        "edges": edges[:100]
+        "edges": edges[:200]
     }
-
 
 
 
@@ -657,7 +784,8 @@ def analyze_document_structure(text: str):
 
     raw_citations = extract_citations(text)
     citations = normalize_citations(raw_citations)
-
+    print("CITATIONS TYPE:", type(citations))
+    print("FIRST CITATION:", citations[0] if citations else None)
     idea_genome = build_idea_genome(
         text,
         limit=30
@@ -675,13 +803,15 @@ def analyze_document_structure(text: str):
                claims,
     )
 )
+
     graph = build_graph(
         concepts,
-        claims
+        claims,
+        citations
     )
     graph["edges"].extend(
-    claim_citation_relationships
-)
+        claim_citation_relationships
+    )
 
     return {
 
