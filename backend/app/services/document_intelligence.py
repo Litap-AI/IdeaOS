@@ -586,6 +586,81 @@ def build_claim_citation_relationships(
     return relationships
 
 
+def build_concept_relationships(claims, concepts):
+
+    relationships = []
+    relationship_map = {}
+
+    concept_ids = {
+        concept["id"]
+        for concept in concepts
+    }
+
+    for claim in claims:
+
+        claim_concepts = claim.get("concepts", [])
+
+        if not isinstance(claim_concepts, list):
+            continue
+
+        # Remove duplicates
+        unique_concepts = list(
+            dict.fromkeys(
+                concept_id
+                for concept_id in claim_concepts
+                if concept_id in concept_ids
+            )
+        )
+
+        # Need at least two concepts
+        if len(unique_concepts) < 2:
+            continue
+
+        # Create pairwise relationships
+        for i in range(len(unique_concepts)):
+
+            source_id = unique_concepts[i]
+
+            for j in range(i + 1, len(unique_concepts)):
+
+                target_id = unique_concepts[j]
+
+                if source_id == target_id:
+                    continue
+
+                # Keep relationship direction stable
+                pair = tuple(
+                    sorted(
+                        [source_id, target_id]
+                    )
+                )
+
+                if pair not in relationship_map:
+
+                    relationship_map[pair] = {
+                        "source": pair[0],
+                        "target": pair[1],
+                        "type": "related_to",
+                        "weight": 0,
+                        "claim_ids": [],
+                    }
+
+                relationship = relationship_map[pair]
+
+                relationship["weight"] += 1
+
+                if claim["id"] not in relationship["claim_ids"]:
+
+                    relationship["claim_ids"].append(
+                        claim["id"]
+                    )
+
+    relationships = list(
+        relationship_map.values()
+    )
+
+    return relationships
+
 def build_graph(concepts, claims, citations):
     nodes = []
     edges = []
@@ -668,7 +743,8 @@ def build_graph(concepts, claims, citations):
             edges.append({
                 "source": claim_id,
                 "target": concept["id"],
-                "type": "mentions"
+                "type": "mentions",
+                "weight": 1,
             })
 
     # --------------------------------
@@ -762,19 +838,134 @@ def build_graph(concepts, claims, citations):
                 edges.append({
                     "source": claim_id,
                     "target": reference_id,
-                    "type": "supported_by"
+                    "type": "supported_by",
+                    "weight": 1,
                 })
 
     # --------------------------------
-    # Return graph
+    # Concept -> Concept relationships
     # --------------------------------
+
+    concept_relationships = build_concept_relationships(
+        claims,
+        concepts,
+    )
+    for relationship in concept_relationships:
+        source_id = relationship.get("source")
+        target_id = relationship.get("target")
+        relationship_type = relationship.get("type")
+        weight = relationship.get("weight", 1)
+        claim_ids = relationship.get("claim_ids", [])
+
+    # Ignore malformed relationships
+        if not source_id or not target_id or not relationship_type:
+            continue
+
+        edge_key = (
+            source_id,
+            target_id,
+            relationship_type,
+    )
+
+        if edge_key in edge_keys:
+            continue
+
+    edge_keys.add(edge_key)
+
+    edge = {
+        "source": source_id,
+        "target": target_id,
+        "type": relationship_type,
+        "weight": weight,
+        "claim_ids": claim_ids,
+    }
+
+    edges.append(edge)
 
     return {
         "nodes": nodes,
-        "edges": edges[:200]
+        "edges": edges[:200],
+        "claims": claims,
     }
 
 
+def get_relationship_evidence(
+    source_id,
+    target_id,
+    graph,
+):
+    relationships = graph.get("edges", [])
+
+    matching_relationship = None
+
+    for edge in relationships:
+        if edge.get("type") != "related_to":
+            continue
+
+        source = edge.get("source")
+        target = edge.get("target")
+
+        if (
+            source == source_id
+            and target == target_id
+        ) or (
+            source == target_id
+            and target == source_id
+        ):
+            matching_relationship = edge
+            break
+
+    if not matching_relationship:
+        return {
+            "found": False,
+            "source": source_id,
+            "target": target_id,
+            "relationship": None,
+            "weight": 0,
+            "evidence_claims": [],
+        }
+
+    claim_ids = matching_relationship.get(
+        "claim_ids",
+        [],
+    )
+
+    claims = graph.get("claims", [])
+
+    claim_map = {
+        claim.get("id"): claim
+        for claim in claims
+        if isinstance(claim, dict)
+    }
+
+    evidence_claims = []
+
+    for claim_id in claim_ids:
+        claim = claim_map.get(claim_id)
+
+        if not claim:
+            continue
+
+        evidence_claims.append({
+            "id": claim.get("id"),
+            "text": claim.get("text", ""),
+            "type": claim.get("type"),
+            "confidence": claim.get("confidence"),
+        })
+
+    return {
+        "found": True,
+        "source": source_id,
+        "target": target_id,
+        "relationship": matching_relationship.get(
+            "type"
+        ),
+        "weight": matching_relationship.get(
+            "weight",
+            1,
+        ),
+        "evidence_claims": evidence_claims,
+    }
 
 def analyze_document_structure(text: str):
 
@@ -812,6 +1003,7 @@ def analyze_document_structure(text: str):
     graph["edges"].extend(
         claim_citation_relationships
     )
+    graph["claims"] = claims
 
     return {
 
