@@ -85,11 +85,11 @@ def extract_citations(text: str):
 
     patterns = [
 
-        # Harvard-style
-        r"\([A-Z][A-Za-z'’-]+(?:\s+et al\.)?,?\s*\d{4}[a-z]?\)",
+        # Harvard-style citations
+        r"\([A-Z][A-Za-z'’-]+(?:\s+et al\.)?,?\s+\d{4}[a-z]?\)",
 
-        # Numbered citations
-        r"\[[0-9]{1,3}(?:\s*,\s*[0-9]{1,3})*\]"
+        # Numbered citations: [5], [5,6], [3,4,10]
+        r"\[\s*[0-9]{1,3}(?:\s*,\s*[0-9]{1,3})*\s*\]",
     ]
 
     citations = []
@@ -975,8 +975,7 @@ def analyze_document_structure(text: str):
 
     raw_citations = extract_citations(text)
     citations = normalize_citations(raw_citations)
-    print("CITATIONS TYPE:", type(citations))
-    print("FIRST CITATION:", citations[0] if citations else None)
+    
     idea_genome = build_idea_genome(
         text,
         limit=30

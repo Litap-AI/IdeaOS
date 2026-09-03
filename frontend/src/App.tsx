@@ -30,6 +30,12 @@ type GraphEdge = {
   source: string;
   target: string;
   type: string;
+  weight?: number;
+  claim_ids?: string[];
+};
+type Citation = {
+  raw: string;
+  references: number[];
 };
 
 type Analysis = {
@@ -49,7 +55,7 @@ type Analysis = {
 
   sections: Section[];
 
-  citations: string[];
+  citations: Citation[];
 
   concepts: Concept[];
 
@@ -67,6 +73,11 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedRelationship, setSelectedRelationship] =
+  useState<GraphEdge | null>(null);
+  const [relationshipEvidence, setRelationshipEvidence] =
+  useState<any>(null);
+
 
   async function analyze() {
     if (!file) return;
@@ -108,6 +119,38 @@ export default function App() {
 
     }
   }
+  async function loadRelationshipEvidence(
+  edge: GraphEdge
+) {
+  if (!file) return;
+
+  try {
+    const response = await fetch(
+      `${API}/api/v1/relationships/${encodeURIComponent(
+        file.name
+      )}/${edge.source}/${edge.target}`
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        "Relationship evidence could not be loaded."
+      );
+    }
+
+    const result = await response.json();
+
+    setRelationshipEvidence(result);
+
+  } catch (error) {
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Could not load relationship evidence."
+    );
+
+  }
+}
 
   return (
     <main className="shell">
@@ -332,7 +375,7 @@ export default function App() {
 
             <div className="sections">
 
-              {analysis.sections.map(
+              {(analysis.sections ?? []).map(
                 (section) => (
 
                   <div
@@ -458,6 +501,105 @@ export default function App() {
           </div>
 
 
+          <div className="relationships">
+
+            {analysis.graph.edges
+              .filter(
+                (edge) =>
+                  edge.type === "related_to"
+              )
+              .slice(0, 10)
+              .map((edge) => (
+
+                <button
+                  key={`${edge.source}-${edge.target}`}
+                  className="relationship"
+                  onClick={() => {
+                    setSelectedRelationship(edge);
+                    loadRelationshipEvidence(edge);
+                  }}
+                >
+                  {edge.source}
+                  {" → "}
+                  {edge.target}
+
+                  {" · "}
+
+                  {edge.weight ?? 1}
+                </button>
+
+              ))}
+
+        </div>
+        {/* RELATIONSHIP EVIDENCE */}
+
+{selectedRelationship && (
+  <div className="card full">
+
+    <div className="eyebrow">
+      RELATIONSHIP EVIDENCE
+    </div>
+
+    <h2>
+      {selectedRelationship.source}
+      {" → "}
+      {selectedRelationship.target}
+    </h2>
+
+    <p>
+      Relationship:{" "}
+      {selectedRelationship.type}
+      {" · "}
+      Strength:{" "}
+      {selectedRelationship.weight ?? 1}
+    </p>
+
+    {relationshipEvidence?.evidence_claims?.length ? (
+
+      relationshipEvidence.evidence_claims.map(
+        (claim: {
+          id: string;
+          text: string;
+          type?: string;
+          confidence?: number;
+        }) => (
+
+          <div
+            className="claim"
+            key={claim.id}
+          >
+
+            <span>
+              {claim.text}
+            </span>
+
+            <small>
+              {claim.type ?? "claim"}
+              {" · "}
+              Confidence:{" "}
+              {claim.confidence !== undefined
+                ? `${Math.round(
+                    claim.confidence * 100
+                  )}%`
+                : "N/A"}
+            </small>
+
+          </div>
+
+        )
+      )
+
+    ) : (
+
+      <p>
+        No supporting evidence found.
+      </p>
+
+    )}
+
+  </div>
+)}
+
           {/* CITATIONS */}
 
           <div className="card">
@@ -474,7 +616,7 @@ export default function App() {
                   (citation, index) => (
 
                     <span key={index}>
-                      {citation}
+                      {citation.raw}
                     </span>
 
                   )
