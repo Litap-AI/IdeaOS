@@ -2,7 +2,7 @@ import { useState } from "react";
 
 type Concept = {
   id: string;
-  label: string;
+  name: string;
   frequency: number;
 };
 
@@ -24,6 +24,7 @@ type GraphNode = {
   label: string;
   type: string;
   size: number;
+  frequency?: number;
 };
 
 type GraphEdge = {
@@ -64,6 +65,7 @@ type Analysis = {
   graph: {
     nodes: GraphNode[];
     edges: GraphEdge[];
+    claims?: Claim[];
   };
 };
 
@@ -254,17 +256,17 @@ const getGraphPosition = (id: string) =>
       <header>
 
         <div className="eyebrow">
-          IDEAOS · V0.2
+          IDEA OS · RESEARCH INTELLIGENCE
         </div>
 
         <h1>
           An Operating System for Human Knowledge.
         </h1>
 
-        <p className="subtitle">
-          Turn academic documents into structured maps
-          of concepts, claims, evidence, and intellectual
-          relationships.
+        <p className="hero-subtitle">
+          Transform research documents into structured knowledge,
+          connected ideas, claims, citations and evidence.
+          By Rohit Patil.
         </p>
 
       </header>
@@ -276,20 +278,31 @@ const getGraphPosition = (id: string) =>
 
         <label className="dropzone">
 
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={(event) => {
+          <label className="upload-box">
+  <input
+    type="file"
+    accept=".pdf"
+    onChange={(event) => {
+      const selectedFile =
+        event.target.files?.[0] ?? null;
 
-              const selectedFile =
-                event.target.files?.[0] ?? null;
+      setFile(selectedFile);
+      setAnalysis(null);
+    }}
+  />
 
-              setFile(selectedFile);
+  <div className="upload-icon">↑</div>
 
-              setAnalysis(null);
+  <strong>
+    {file ? file.name : "Upload a research PDF"}
+  </strong>
 
-            }}
-          />
+  <span>
+    {file
+      ? "PDF selected and ready for analysis"
+      : "Drop a PDF here or click to browse"}
+  </span>
+</label>
 
           <span>
             {file
@@ -305,14 +318,11 @@ const getGraphPosition = (id: string) =>
 
 
         <button
-          disabled={!file || loading}
-          onClick={analyze}
-        >
-
-          {loading
-            ? "Analyzing..."
-            : "Analyze document"}
-
+  className="analyze-button"
+  disabled={!file || loading}
+  onClick={analyze}
+>
+  {loading ? "Analyzing document..." : "Analyze document"}
         </button>
 
       </section>
@@ -344,7 +354,39 @@ const getGraphPosition = (id: string) =>
             </p>
 
           </div>
+          {/* KNOWLEDGE METRICS */}
 
+<div className="metrics-grid">
+
+  <div className="metric-card">
+    <span className="eyebrow">CONCEPTS</span>
+    <strong>{analysis.graph.nodes.length}</strong>
+    <small>Knowledge nodes</small>
+  </div>
+
+  <div className="metric-card">
+    <span className="eyebrow">RELATIONSHIPS</span>
+    <strong>
+      {analysis.graph.edges.filter(
+        (edge) => edge.type === "related_to"
+      ).length}
+    </strong>
+    <small>Concept connections</small>
+  </div>
+
+  <div className="metric-card">
+    <span className="eyebrow">CLAIMS</span>
+    <strong>{analysis.graph.claims?.length ?? 0}</strong>
+    <small>Extracted claims</small>
+  </div>
+
+  <div className="metric-card">
+    <span className="eyebrow">CITATIONS</span>
+    <strong>{analysis.citations?.length ?? 0}</strong>
+    <small>Referenced sources</small>
+  </div>
+
+</div>
 
           {/* CORE STATS */}
 
@@ -431,24 +473,21 @@ const getGraphPosition = (id: string) =>
           <div className="card">
 
             <div className="eyebrow">
-              CONCEPTS
+              CONCEPTS IDENTIFIED
             </div>
+            <p className="section-description">
+              Concepts extracted from the document, with their detected frequency.
+            </p>
 
             <div className="concepts">
 
               {analysis.concepts.map(
                 (concept) => (
-
-                  <span
-                    key={concept.id}
-                  >
-
-                    {concept.label}
-
+                  <span key={concept.id}>
+                    {concept.name}
                     {" · "}
-
-                    {concept.frequency}
-
+                    {concept.frequency} 
+                    {" occurrences"}
                   </span>
 
                 )
@@ -551,16 +590,26 @@ const getGraphPosition = (id: string) =>
           <div className="card full">
 
             <div className="eyebrow">
-              IDEA GRAPH · MVP
+              IDEA GRAPH
             </div>
+            <h2>
+              Connected Knowledge Graph
+            </h2>
 
             <p>
-              {analysis.graph.nodes.length}
-              {" nodes · "}
-              {analysis.graph.edges.length}
-              {" relationships"}
+              Explore the strongest concepts and their relationships.
+              Select a connection to inspect the supporting evidence.
             </p>
+            
+            <div className="graph-meta">
+    <span>
+      {analysis.graph.nodes.length} nodes
+    </span>
 
+    <span>
+      {analysis.graph.edges.length} relationships
+    </span>
+  </div>
           <div className="graph">
 
   <svg
@@ -605,42 +654,30 @@ const getGraphPosition = (id: string) =>
     (node, index) => (
 
       <button
-        className="node"
-        key={node.id}
-        title={`${node.label} · ${node.size}`}
-        style={{
-          left:
-            `${graphPositions[index].x}%`,
+  className="node"
+  key={node.id}
+  title={`${node.label} · ${node.size}`}
+  style={{
+    left: `${graphPositions[index].x}%`,
+    top: `${graphPositions[index].y}%`,
+  }}
+  onClick={() => {
+    const connectedEdge =
+      relationshipEdges.find(
+        (edge) =>
+          edge.source === node.id ||
+          edge.target === node.id
+      );
 
-          top:
-            `${graphPositions[index].y}%`
-        }}
-        onClick={() => {
-
-          const connectedEdge =
-            relationshipEdges.find(
-              (edge) =>
-                edge.source === node.id ||
-                edge.target === node.id
-            );
-
-          if (connectedEdge) {
-            setSelectedRelationship(
-              connectedEdge
-            );
-
-            loadRelationshipEvidence(
-              connectedEdge
-            );
-          }
-
-        }}
-      >
-
-        {node.label}
-
-      </button>
-
+    if (connectedEdge) {
+      setSelectedRelationship(connectedEdge);
+      loadRelationshipEvidence(connectedEdge);
+    }
+  }}
+>
+  {node.label}
+</button>
+      
     )
   )}
 
@@ -687,7 +724,7 @@ const getGraphPosition = (id: string) =>
     </div>
 
     <h2>
-      <h2>
+    
   {analysis.graph.nodes.find(
     (node) => node.id === selectedRelationship.source
   )?.label ?? selectedRelationship.source}
@@ -695,7 +732,7 @@ const getGraphPosition = (id: string) =>
   {analysis.graph.nodes.find(
     (node) => node.id === selectedRelationship.target
   )?.label ?? selectedRelationship.target}
-</h2>
+
     </h2>
 
     <p>
@@ -708,38 +745,38 @@ const getGraphPosition = (id: string) =>
 
     {relationshipEvidence?.evidence_claims?.length ? (
 
-      relationshipEvidence.evidence_claims.map(
-        (claim: {
-          id: string;
-          text: string;
-          type?: string;
-          confidence?: number;
-        }) => (
+     relationshipEvidence.evidence_claims.map(
+  (claim: {
+    id: string;
+    text: string;
+    type?: string;
+    confidence?: number;
+  }) => (
+    <div
+      className="claim"
+      key={claim.id}
+    >
+      <div className="claim-meta">
+        <span className="claim-type">
+          {claim.type ?? "claim"}
+        </span>
 
-          <div
-            className="claim"
-            key={claim.id}
-          >
+        <span className="claim-confidence">
+          Confidence:{" "}
+          {claim.confidence !== undefined
+            ? `${Math.round(
+                claim.confidence * 100
+              )}%`
+            : "N/A"}
+        </span>
+      </div>
 
-            <span>
-              {claim.text}
-            </span>
-
-            <small>
-              {claim.type ?? "claim"}
-              {" · "}
-              Confidence:{" "}
-              {claim.confidence !== undefined
-                ? `${Math.round(
-                    claim.confidence * 100
-                  )}%`
-                : "N/A"}
-            </small>
-
-          </div>
-
-        )
-      )
+      <p className="claim-text">
+        {claim.text}
+      </p>
+    </div>
+  )
+)      
 
     ) : (
 

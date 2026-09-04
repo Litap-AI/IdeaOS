@@ -694,7 +694,8 @@ def build_graph(concepts, claims, citations):
             "size": min(
                 42,
                 14 + concept.get("frequency", 0) * 2
-            )
+            ),
+            "frequency": concept.get("frequency", 0)
         })
 
     # --------------------------------
