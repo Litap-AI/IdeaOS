@@ -77,6 +77,100 @@ export default function App() {
   useState<GraphEdge | null>(null);
   const [relationshipEvidence, setRelationshipEvidence] =
   useState<any>(null);
+    const conceptNodes =
+    analysis?.graph.nodes.filter(
+      (node) =>
+        node.type === "concept"
+    ) ?? [];
+
+   const connectionScores = new Map<string, number>();
+
+(analysis?.graph.edges ?? [])
+  .filter((edge) => edge.type === "related_to")
+  .forEach((edge) => {
+    const weight = edge.weight ?? 1;
+
+    connectionScores.set(
+      edge.source,
+      (connectionScores.get(edge.source) ?? 0) + weight
+    );
+
+    connectionScores.set(
+      edge.target,
+      (connectionScores.get(edge.target) ?? 0) + weight
+    );
+  });
+
+const visibleConcepts =
+  [...conceptNodes]
+    .sort((a, b) => {
+      const scoreA =
+        (a.size ?? 0) + (connectionScores.get(a.id) ?? 0) * 2;
+
+      const scoreB =
+        (b.size ?? 0) + (connectionScores.get(b.id) ?? 0) * 2;
+
+      return scoreB - scoreA;
+    })
+    .slice(0, 16);
+
+const visibleConceptIds = new Set(
+  visibleConcepts.map((node) => node.id)
+);
+
+const relationshipEdges =
+  analysis?.graph.edges
+    .filter(
+      (edge) =>
+        edge.type === "related_to" &&
+        visibleConceptIds.has(edge.source) &&
+        visibleConceptIds.has(edge.target)
+    )
+    .slice(0, 40) ?? [];
+    
+    const graphPositions = visibleConcepts.map((node, index) => {
+  if (index === 0) {
+    return {
+      id: node.id,
+      x: 50,
+      y: 50,
+    };
+  }
+
+  const innerRingCount = Math.min(6, visibleConcepts.length - 1);
+
+  if (index <= innerRingCount) {
+    const angle =
+      ((index - 1) / innerRingCount) * Math.PI * 2;
+
+    const radius = 24;
+
+    return {
+      id: node.id,
+      x: 50 + Math.cos(angle) * radius,
+      y: 50 + Math.sin(angle) * radius,
+    };
+  }
+
+  const outerIndex = index - innerRingCount - 1;
+  const outerCount = visibleConcepts.length - innerRingCount - 1;
+
+  const angle =
+    (outerIndex / Math.max(outerCount, 1)) * Math.PI * 2;
+
+  const radius = 39;
+
+  return {
+    id: node.id,
+    x: 50 + Math.cos(angle) * radius,
+    y: 50 + Math.sin(angle) * radius,
+  };
+});
+    
+
+const getGraphPosition = (id: string) =>
+  graphPositions.find((position) => position.id === id);
+
 
 
   async function analyze() {
@@ -467,47 +561,101 @@ export default function App() {
               {" relationships"}
             </p>
 
-            <div className="graph">
+          <div className="graph">
 
-              {analysis.graph.nodes
-                .filter(
-                  (node) =>
-                    node.type === "concept"
-                )
-                .slice(0, 16)
-                .map((node, index) => (
+  <svg
+    className="graph-lines"
+    viewBox="0 0 100 100"
+    preserveAspectRatio="none"
+  >
 
-                  <div
-                    className="node"
-                    key={node.id}
-                    title={`${node.label} · ${node.size}`}
-                    style={{
-                      left:
-                        `${20 + (index % 4) * 24}%`,
+    {relationshipEdges.map((edge) => {
 
-                      top:
-                        `${25 + Math.floor(index / 4) * 23}%`
-                    }}
-                  >
+      const sourcePosition = getGraphPosition(edge.source);
+      const targetPosition = getGraphPosition(edge.target);
 
-                    {node.label}
+      if (!sourcePosition || !targetPosition) return null;
 
-                  </div>
+      const sourceX = sourcePosition.x;
+      const sourceY = sourcePosition.y;
+      const targetX = targetPosition.x;
+      const targetY = targetPosition.y;
 
-                ))}
+      return (
+        <line
+          key={`${edge.source}-${edge.target}`}
+          x1={`${sourceX}%`}
+          y1={`${sourceY}%`}
+          x2={`${targetX}%`}
+          y2={`${targetY}%`}
+          className="graph-line"
+          onClick={() => {
+            setSelectedRelationship(edge);
+            loadRelationshipEvidence(edge);
+          }}
+        />
+      );
 
-            </div>
+    })}
 
+  </svg>
+
+
+  {visibleConcepts.map(
+    (node, index) => (
+
+      <button
+        className="node"
+        key={node.id}
+        title={`${node.label} · ${node.size}`}
+        style={{
+          left:
+            `${graphPositions[index].x}%`,
+
+          top:
+            `${graphPositions[index].y}%`
+        }}
+        onClick={() => {
+
+          const connectedEdge =
+            relationshipEdges.find(
+              (edge) =>
+                edge.source === node.id ||
+                edge.target === node.id
+            );
+
+          if (connectedEdge) {
+            setSelectedRelationship(
+              connectedEdge
+            );
+
+            loadRelationshipEvidence(
+              connectedEdge
+            );
+          }
+
+        }}
+      >
+
+        {node.label}
+
+      </button>
+
+    )
+  )}
+
+</div>
           </div>
 
 
           <div className="relationships">
 
-            {analysis.graph.edges
+            
+            {relationshipEdges
               .filter(
                 (edge) =>
                   edge.type === "related_to"
-              )
+  )
               .slice(0, 10)
               .map((edge) => (
 
@@ -519,13 +667,11 @@ export default function App() {
                     loadRelationshipEvidence(edge);
                   }}
                 >
-                  {edge.source}
-                  {" → "}
-                  {edge.target}
-
-                  {" · "}
-
-                  {edge.weight ?? 1}
+                  {analysis.graph.nodes.find((node) => node.id === edge.source)?.label ?? edge.source}
+{" → "}
+{analysis.graph.nodes.find((node) => node.id === edge.target)?.label ?? edge.target}
+{" · "}
+{edge.weight ?? 1}
                 </button>
 
               ))}
@@ -541,9 +687,15 @@ export default function App() {
     </div>
 
     <h2>
-      {selectedRelationship.source}
-      {" → "}
-      {selectedRelationship.target}
+      <h2>
+  {analysis.graph.nodes.find(
+    (node) => node.id === selectedRelationship.source
+  )?.label ?? selectedRelationship.source}
+  {" → "}
+  {analysis.graph.nodes.find(
+    (node) => node.id === selectedRelationship.target
+  )?.label ?? selectedRelationship.target}
+</h2>
     </h2>
 
     <p>

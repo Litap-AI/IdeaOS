@@ -846,42 +846,50 @@ def build_graph(concepts, claims, citations):
     # Concept -> Concept relationships
     # --------------------------------
 
+
     concept_relationships = build_concept_relationships(
         claims,
         concepts,
     )
+
     for relationship in concept_relationships:
+
         source_id = relationship.get("source")
         target_id = relationship.get("target")
         relationship_type = relationship.get("type")
         weight = relationship.get("weight", 1)
         claim_ids = relationship.get("claim_ids", [])
 
-    # Ignore malformed relationships
-        if not source_id or not target_id or not relationship_type:
+        # Ignore malformed relationships
+        if (
+            not source_id
+            or not target_id
+            or not relationship_type
+        ):
             continue
 
         edge_key = (
             source_id,
             target_id,
             relationship_type,
-    )
+        )
 
         if edge_key in edge_keys:
             continue
 
-    edge_keys.add(edge_key)
+        edge_keys.add(edge_key)
 
-    edge = {
-        "source": source_id,
-        "target": target_id,
-        "type": relationship_type,
-        "weight": weight,
-        "claim_ids": claim_ids,
-    }
+        edge = {
+            "source": source_id,
+            "target": target_id,
+            "type": relationship_type,
+            "weight": weight,
+            "claim_ids": claim_ids,
+        }
 
-    edges.append(edge)
-
+        edges.append(edge)
+    
+    
     return {
         "nodes": nodes,
         "edges": edges[:200],
